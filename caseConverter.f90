@@ -12,9 +12,9 @@ module caseConverter
         character(*), intent(in) :: input
         character(len(input)) :: output
 
-        integer, parameter :: code_min = iachar('A')
-        integer, parameter :: code_max = iachar('Z')
-        integer, parameter :: offset = iachar('a') - iachar('A')
+        integer, parameter :: code_min = iachar('a')
+        integer, parameter :: code_max = iachar('z')
+        integer, parameter :: offset = iachar('A') - iachar('a')
 
         call convert_core(input   , &  !! IN
                         & output  , &  !! OUT
@@ -29,9 +29,9 @@ module caseConverter
         character(*), intent(in) :: input
         character(len(input)) :: output
 
-        integer, parameter :: code_min = iachar('a')
-        integer, parameter :: code_max = iachar('z')
-        integer, parameter :: offset = iachar('A') - iachar('a')
+        integer, parameter :: code_min = iachar('A')
+        integer, parameter :: code_max = iachar('Z')
+        integer, parameter :: offset = iachar('a') - iachar('A')
 
         call convert_core(input   , &  !! IN
                         & output  , &  !! OUT

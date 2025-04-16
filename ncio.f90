@@ -1,17 +1,17 @@
 module ncio
 
     use netcdf
-    use caseConverter, only: to_lower, to_upper
+    use caseConverter, only: to_lower
 
     implicit none
 
     private
-    public :: ncopen, ncclose, fread
+    public :: ncinfo, ncopen, ncclose, ncread
 
 
     integer, parameter :: dim_max = 3
 
-    type finfo
+    type ncinfo
         private
         integer        :: unit
         character(256) :: file
@@ -22,29 +22,29 @@ module ncio
         integer        :: varid
         integer        :: ndim
         integer        :: shape(dim_max)
-    end type finfo
+    end type ncinfo
 
 
-    interface fread
+    interface ncread
         module procedure &
-          & fread_1    , &
-          & fread_2    , &
-          & fread_3
-    end interface fread
+          & ncread_1    , &
+          & ncread_2    , &
+          & ncread_3
+    end interface ncread
 
 
     contains
 
 
     subroutine ncopen(ftype, file, action, tstart, tstep, var, ndim, shape)
-        type(finfo)   , intent(out) :: ftype
-        character(256), intent(in)  :: file
-        character(16) , intent(in)  :: action
-        integer       , intent(in)  :: tstart
-        integer       , intent(in)  :: tstep
-        character(32) , intent(in)  :: var
-        integer       , intent(in)  :: ndim
-        integer       , intent(in)  :: shape(ndim)
+        type(ncinfo), intent(out) :: ftype
+        character(*), intent(in)  :: file
+        character(*), intent(in)  :: action
+        integer     , intent(in)  :: tstart
+        integer     , intent(in)  :: tstep
+        character(*), intent(in)  :: var
+        integer     , intent(in)  :: ndim
+        integer     , intent(in)  :: shape(ndim)
 
         integer :: stat
         integer :: ndim_true
@@ -71,50 +71,12 @@ module ncio
             ERROR STOP
         endif
 
-        if (trim(to_lower(action)) == 'write') then
+        if (to_lower(trim(action)) == 'read') then
             action_int = NF90_NOWRITE
         else
             write(0,'(A)') '<ERROR STOP>'
             write(0,'(A)') 'NCOPEN() for ' // trim(file)
             write(0,'(A)') 'Action ' // trim(action) // ' is not supported'
-            ERROR STOP
-        endif
-
-
-
-        !! OPEN
-        stat = NF90_OPEN(PATH=file      , &  !! IN
-                       & MODE=action_int, &  !! IN
-                       & NCID=ftype%unit  )  !! OUT
-
-        if (stat /= NF90_NOERR) then
-            write(0,'(A)') '<ERROR STOP>'
-            write(0,'(A)') 'Failed to open ' // trim(file)
-            ERROR STOP
-        endif
-
-
-        !! Get Variable ID
-        stat = NF90_INQ_VARID(NCID =ftype%unit , &  !! IN
-                            & NAME =trim(var)  , &  !! IN
-                            & VARID=ftype%varid  )  !! OUT
-
-        if (stat /= NF90_NOERR) then
-            ! Close and Error Stop
-            write(0,'(A)') '<ERROR STOP>'
-            write(0,'(A)') trim(var) // ' : No such variable in ' // trim(file)
-            call ncclose(ftype)
-            ERROR STOP
-        endif
-
-
-        !! Check the Dimension
-        stat = NF90_INQUIRE(NCID       =ftype%unit, &  !! IN
-                          & NDIMENSIONS=ndim_true   )  !! OUT
-        if (ndim /= ndim_true) then
-            write(0,'(A)') '<ERROR STOP>'
-            write(0,'(A,I0,A,I0,A)') 'Number of dimensions of ' // trim(var) // ' is ', ndim_true, ', but ', ndim, ' was specified'
-            call ncclose(ftype)
             ERROR STOP
         endif
 
@@ -126,11 +88,41 @@ module ncio
         ftype%ndim          = ndim
         ftype%shape(1:ndim) = shape(1:ndim)
     
+
+        !! OPEN
+        stat = NF90_OPEN(PATH=file      , &  !! IN
+                       & MODE=action_int, &  !! IN
+                       & NCID=ftype%unit  )  !! OUT
+
+        call error_stop(ftype, &  !! IN
+                      & stat   )  !! IN
+
+
+        !! Get Variable ID
+        stat = NF90_INQ_VARID(NCID =ftype%unit , &  !! IN
+                            & NAME =trim(var)  , &  !! IN
+                            & VARID=ftype%varid  )  !! OUT
+
+        call error_stop(ftype, &  !! IN
+                      & stat   )  !! IN
+
+
+        !! Check the Dimension
+        stat = NF90_INQUIRE(NCID       =ftype%unit, &  !! IN
+                          & NDIMENSIONS=ndim_true   )  !! OUT
+
+        if (ndim /= ndim_true-1) then
+            write(0,'(A)') '<ERROR STOP>'
+            write(0,'(A,I0,A,I0,A)') 'Number of dimensions of ' // trim(var) // ' is ', ndim_true-1, ' except the time dimension, but ', ndim, ' was specified'
+            call ncclose(ftype)
+            ERROR STOP
+        endif
+
     end subroutine ncopen
 
 
     subroutine ncclose(ftype)
-        type(finfo), intent(inout) :: ftype
+        type(ncinfo), intent(inout) :: ftype
         
         integer :: stat
 
@@ -146,11 +138,11 @@ module ncio
     end subroutine ncclose
 
 
-    subroutine fread_1(ftype, input_data)
+    subroutine ncread_1(ftype, input_data)
         integer, parameter :: rk=4
         integer, parameter :: dim=1
-        type(finfo), intent(inout) :: ftype
-        real(rk)   , intent(out)   :: input_data(ftype%shape(1))
+        type(ncinfo), intent(inout) :: ftype
+        real(rk)    , intent(out)   :: input_data(ftype%shape(1))
 
         real(rk) :: work_reader(ftype%shape(1),1)
         integer  :: start(dim+1)
@@ -162,26 +154,26 @@ module ncio
         start(dim+1)   = ftype%record
         count(1:dim+1) = [(ftype%shape(i), i=1,dim), 1]
 
-        stat = NF90_GET_VAR(NCID  =ftype%unit                        , &  !! IN
-                          & VARID =ftype%varid                       , &  !! IN
+        stat = NF90_GET_VAR(NCID  =ftype%unit                       , &  !! IN
+                          & VARID =ftype%varid                      , &  !! IN
                           & VALUES=work_reader(1:ftype%shape(1),1:1), &  !! OUT
-                          & START =start(1:dim)                     , &  !! IN
-                          & COUNT =count(1:dim)                       )  !! IN
-        call read_error(ftype, &  !! IN
+                          & START =start(1:dim+1)                   , &  !! IN
+                          & COUNT =count(1:dim+1)                     )  !! IN
+        call error_stop(ftype, &  !! IN
                       & stat   )  !! IN
 
         input_data(1:ftype%shape(1)) = work_reader(1:ftype%shape(1),1)
 
         ftype%record = ftype%record + ftype%recstep
 
-    end subroutine fread_1
+    end subroutine ncread_1
 
 
-    subroutine fread_2(ftype, input_data)
+    subroutine ncread_2(ftype, input_data)
         integer, parameter :: rk=4
         integer, parameter :: dim=2
-        type(finfo), intent(inout) :: ftype
-        real(rk)   , intent(out)   :: input_data(ftype%shape(1),ftype%shape(2))
+        type(ncinfo), intent(inout) :: ftype
+        real(rk)    , intent(out)   :: input_data(ftype%shape(1),ftype%shape(2))
 
         real(rk) :: work_reader(ftype%shape(1),ftype%shape(2),1)
         integer  :: start(dim+1)
@@ -196,23 +188,23 @@ module ncio
         stat = NF90_GET_VAR(NCID  =ftype%unit                                        , &  !! IN
                           & VARID =ftype%varid                                       , &  !! IN
                           & VALUES=work_reader(1:ftype%shape(1),1:ftype%shape(2),1:1), &  !! OUT
-                          & START =start(1:dim)                                      , &  !! IN
-                          & COUNT =count(1:dim)                                        )  !! IN
-        call read_error(ftype, &  !! IN
+                          & START =start(1:dim+1)                                    , &  !! IN
+                          & COUNT =count(1:dim+1)                                      )  !! IN
+        call error_stop(ftype, &  !! IN
                       & stat   )  !! IN
 
         input_data(1:ftype%shape(1),1:ftype%shape(2)) = work_reader(1:ftype%shape(1),1:ftype%shape(2),1)
 
         ftype%record = ftype%record + ftype%recstep
 
-    end subroutine fread_2
+    end subroutine ncread_2
 
 
-    subroutine fread_3(ftype, input_data)
+    subroutine ncread_3(ftype, input_data)
         integer, parameter :: rk=4
         integer, parameter :: dim=3
-        type(finfo), intent(inout) :: ftype
-        real(rk)   , intent(out)   :: input_data(ftype%shape(1),ftype%shape(2),ftype%shape(3))
+        type(ncinfo), intent(inout) :: ftype
+        real(rk)    , intent(out)   :: input_data(ftype%shape(1),ftype%shape(2),ftype%shape(3))
 
         real(rk) :: work_reader(ftype%shape(1),ftype%shape(2),ftype%shape(3),1)
         integer  :: start(dim+1)
@@ -227,28 +219,29 @@ module ncio
         stat = NF90_GET_VAR(NCID  =ftype%unit                                                         , &  !! IN
                           & VARID =ftype%varid                                                        , &  !! IN
                           & VALUES=work_reader(1:ftype%shape(1),1:ftype%shape(2),1:ftype%shape(3),1:1), &  !! OUT
-                          & START =start(1:dim)                                                       , &  !! IN
-                          & COUNT =count(1:dim)                                                         )  !! IN
-        call read_error(ftype, &  !! IN
+                          & START =start(1:dim+1)                                                     , &  !! IN
+                          & COUNT =count(1:dim+1)                                                       )  !! IN
+        call error_stop(ftype, &  !! IN
                       & stat   )  !! IN
 
         input_data(1:ftype%shape(1),1:ftype%shape(2),1:ftype%shape(3)) = work_reader(1:ftype%shape(1),1:ftype%shape(2),1:ftype%shape(3),1)
 
         ftype%record = ftype%record + ftype%recstep
 
-    end subroutine fread_3
+    end subroutine ncread_3
 
 
-    subroutine read_error(ftype, stat)
-        type(finfo), intent(inout) :: ftype
-        integer    , intent(in)    :: stat
+    subroutine error_stop(ftype, stat)
+        type(ncinfo), intent(inout) :: ftype
+        integer     , intent(in)    :: stat
 
         if (stat == NF90_NOERR) then
             return
         endif
 
         write(0,'(A)')                 '<ERROR STOP>'
-        write(0,'(A)')                 'Failed to read '// trim(ftype%file)
+        write(0,'(A)')                 trim(NF90_STRERROR(stat))
+        write(0,'(A)')                 'FILE : '// trim(ftype%file)
         write(0,'(A,I0)')              'ERROR-CODE : ', stat
         write(0,'(A)')                 'VARIABLE : ' // trim(ftype%varname)
         write(0,'(A,I0)')              'T=', ftype%record
@@ -257,7 +250,7 @@ module ncio
         call ncclose(ftype)
         ERROR STOP
 
-    end subroutine read_error
+    end subroutine error_stop
 
 
 end module ncio
